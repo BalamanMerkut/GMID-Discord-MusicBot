@@ -1,0 +1,8 @@
+discord.py
+yt-dlp
+PyNaCl
+python-dotenv
+lyricsgenius
+openai
+aiohttp
+davey
