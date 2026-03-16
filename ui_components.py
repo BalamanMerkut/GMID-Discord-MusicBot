@@ -15,6 +15,7 @@ class MusicControlView(View):
 
     def update_button_emojis(self):
         """Initializes button emojis with custom server emojis if available."""
+        # Map button custom_ids to emoji names
         emoji_map = {
             "pause_resume": "rew",
             "stop": "unnamed__1_removebgpreview1",
@@ -22,21 +23,22 @@ class MusicControlView(View):
             "loop": "rewe",
             "shuffle": "re"
         }
-
+        
         for child in self.children:
             if isinstance(child, discord.ui.Button) and child.custom_id in emoji_map:
                 custom = self.get_emoji(emoji_map[child.custom_id])
                 if custom:
                     child.emoji = custom
-                    child.label = None  # Remove label if custom emoji found
+                    child.label = None # Remove label if custom emoji found
 
     async def update_view(self, interaction, state):
         """Helper to update the embed with a new state icon."""
         state_file = self.music_player.get_state_file(state)
         embed = interaction.message.embeds[0]
-
+        
+        # Ensure emojies are up to date on every interaction
         self.update_button_emojis()
-
+        
         if state_file:
             embed.set_thumbnail(url=f"attachment://{state}.png")
             await interaction.response.edit_message(attachments=[state_file], embed=embed, view=self)

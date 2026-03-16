@@ -1,1 +1,0 @@
-# GMID Music Bot
