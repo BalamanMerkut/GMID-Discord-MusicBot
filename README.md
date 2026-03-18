@@ -7,9 +7,12 @@ A feature-rich Discord music bot that plays audio from YouTube, fetches song lyr
 ## ✨ Features
 
 - 🎵 **Play music** from YouTube — search by name or paste a direct URL
-- 🤖 **AI-powered search refinement** using OpenAI (finds the correct song even from vague queries)
-- 📜 **Lyrics fetching** via Genius API
-- 🎛️ **Interactive control panel** with buttons: Pause/Resume, Stop, Skip, Loop, Shuffle
+- 🤖 **AI-powered search refinement** using OpenAI (finds the correct song even from vague descriptions)
+- 🎤 **Singer-Only Search** — Automatically finds popular tracks if you only provide an artist's name
+- 📜 **Lyrics fetching** via Genius AI
+- ⏱️ **5-Minute Idle Auto-Disconnect** — Leaves the voice channel if inactive for 5 minutes
+- 🎛️ **Interactive persistent control panel** — A single "Now Playing" message that stays at the bottom and updates for each song
+- 🗑️ **Automated UI Cleanup** — Deletes the music panel when the music stops or bot leaves
 - 🖼️ Custom state icons (play, pause, loop, shuffle, stop, skip)
 
 ---
@@ -19,7 +22,7 @@ A feature-rich Discord music bot that plays audio from YouTube, fetches song lyr
 - Python 3.9+
 - FFmpeg installed and available in your system PATH
 - A Discord Bot Token
-- A Genius API Access Token
+- A Genius API Access Token (optional)
 - An OpenAI API Key (optional — bot works without it, AI refinement will be disabled)
 
 ---
@@ -28,8 +31,8 @@ A feature-rich Discord music bot that plays audio from YouTube, fetches song lyr
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/your-username/gmid-music-bot.git
-cd gmid-music-bot
+git clone https://github.com/BalamanMerkut/GMID-Discord-MusicBot.git
+cd GMID-Discord-MusicBot
 ```
 
 ### 2. Install dependencies
@@ -54,8 +57,8 @@ OPENAI_API_KEY=your_openai_api_key_here
 | Key | Link |
 |-----|------|
 | `DISCORD_TOKEN` | [Discord Developer Portal](https://discord.com/developers/applications) → Your App → Bot → Token |
-| `GENIUS_ACCESS_TOKEN` | [Genius API Clients](https://genius.com/api-clients) → Generate Access Token |
-| `OPENAI_API_KEY` | [OpenAI Platform](https://platform.openai.com/api-keys) *(optional)* |
+| `GENIUS_ACCESS_TOKEN` | [Genius API Clients](https://genius.com/api-clients) |
+| `OPENAI_API_KEY` | [OpenAI Platform](https://platform.openai.com/api-keys) |
 
 ### 4. Install FFmpeg
 Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add it to your system PATH.
@@ -72,6 +75,7 @@ python main.py
 | Command | Description |
 |---------|-------------|
 | `/play <song or URL>` | Play a song by name or YouTube URL |
+| `/again` | Replay the last played song |
 | `/lyrics` | Get lyrics for the currently playing song |
 | `/help` | Show all available commands |
 
@@ -97,17 +101,9 @@ python main.py
  ┣ 📄 lyrics_helper.py # Genius API lyrics fetching
  ┣ 📄 ai_helper.py     # OpenAI query refinement
  ┣ 📄 requirements.txt # Python dependencies
- ┣ 📄 .env.example     # Template for environment variables
- ┗ 📄 .gitignore       # Excludes .env and cache files
+ ┣ 📄 example.env      # Template for environment variables
+ ┗ 📄 README.md        # This file
 ```
-
----
-
-## ⚠️ Notes
-
-- The bot requires **Message Content Intent** and **Voice State Intent** enabled in the Discord Developer Portal.
-- Global slash command sync can take up to **1 hour** to appear on Discord. For immediate testing, type `!sync` in your server (bot owner only).
-- FFmpeg must be installed for audio playback to work.
 
 ---
 
