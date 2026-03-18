@@ -81,6 +81,10 @@ class MusicPlayer:
         self.loop = False
         self.shuffle = False
         self.assets_path = os.path.join(os.path.dirname(__file__), "assets")
+        self.now_playing_msg = None
+        self.text_channel = None
+        self.idle_task = None
+        self.last_playing = None # Stores the metadata of the last started song
 
     def get_state_file(self, state):
         """Returns a discord.File for the current state icon."""
@@ -110,7 +114,51 @@ class MusicPlayer:
             print(f"DEBUG: Error in MusicPlayer.join: {e}")
             raise e
 
-    async def play_next(self, interaction):
+    def start_idle_timer(self):
+        """Starts the 5-minute idle timer."""
+        self.stop_idle_timer()
+        print("DEBUG: Starting 5-minute idle timer.")
+        self.idle_task = self.bot.loop.create_task(self.idle_timeout())
+
+    def stop_idle_timer(self):
+        """Stops the idle timer."""
+        if self.idle_task:
+            print("DEBUG: Stopping idle timer.")
+            self.idle_task.cancel()
+            self.idle_task = None
+
+    def reset_idle_timer(self):
+        """Resets the idle timer if the bot is not playing music."""
+        if self.voice_client and not self.voice_client.is_playing() and not self.voice_client.is_paused():
+            self.start_idle_timer()
+        else:
+            self.stop_idle_timer()
+
+    async def idle_timeout(self):
+        """Disconnects the bot after 5 minutes of inactivity."""
+        try:
+            await asyncio.sleep(300) # 5 minutes
+            print("DEBUG: 5 minutes idle timeout reached. Disconnecting.")
+            if self.voice_client:
+                # Cleanup UI before leaving
+                await self.cleanup_now_playing()
+                await self.voice_client.disconnect()
+                self.voice_client = None
+        except asyncio.CancelledError:
+            pass
+
+    async def cleanup_now_playing(self):
+        """Deletes the 'Now Playing' message if it exists."""
+        if self.now_playing_msg:
+            try:
+                await self.now_playing_msg.delete()
+            except Exception as e:
+                print(f"DEBUG: Error deleting now_playing_msg: {e}")
+            self.now_playing_msg = None
+
+    async def play_next(self, interaction=None):
+        self.stop_idle_timer()
+        
         # If loop is enabled and there is a current song, replay it directly
         if self.loop and self.current_song:
             song_to_play = self.current_song
@@ -123,6 +171,9 @@ class MusicPlayer:
             self.current_song = song_to_play
         else:
             self.current_song = None
+            print("DEBUG: Queue empty. Starting idle timer.")
+            await self.cleanup_now_playing()
+            self.start_idle_timer()
             return
 
         url = song_to_play['url']
@@ -134,30 +185,32 @@ class MusicPlayer:
             )
         except asyncio.TimeoutError:
             print(f"DEBUG: Timeout extracting song info for: {url}")
-            await interaction.channel.send(f"❌ Timeout loading song: **{song_to_play['title']}**")
+            await self.text_channel.send(f"❌ Timeout loading song: **{song_to_play['title']}**")
             # On timeout during loop, still continue to next song
             if self.loop:
                 self.loop = False
             return await self.play_next(interaction)
         except Exception as e:
             print(f"DEBUG: Error loading song: {e}")
-            await interaction.channel.send(f"❌ Error loading song: {e}")
+            await self.text_channel.send(f"❌ Error loading song: {e}")
             if self.loop:
                 self.loop = False
             return await self.play_next(interaction)
 
         print(f"DEBUG: Starting playback for {player.title}")
         try:
+            self.last_playing = song_to_play # Track for /again command
             self.voice_client.play(
                 player,
                 after=lambda e: (
                     print(f"DEBUG: Player error: {e}") if e
-                    else asyncio.run_coroutine_threadsafe(self.play_next(interaction), self.bot.loop)
+                    else asyncio.run_coroutine_threadsafe(self.play_next(), self.bot.loop)
                 )
             )
         except Exception as e:
             print(f"DEBUG: Fatal error starting voice_client playback: {e}")
-            await interaction.channel.send(f"❌ Could not start playback: {e}")
+            await self.text_channel.send(f"❌ Could not start playback: {e}")
+            self.start_idle_timer()
             return
 
         from ui_components import MusicControlView
@@ -172,10 +225,38 @@ class MusicPlayer:
         if state_file:
             embed.set_thumbnail(url="attachment://play.png")
 
-        # Always use channel.send — interaction may have expired in later calls
-        await interaction.channel.send(
-            file=state_file, embed=embed, view=view
-        ) if state_file else await interaction.channel.send(embed=embed, view=view)
+        # Persistent Message Logic
+        try:
+            if interaction:
+                # Clear thinking status by editing original response
+                if state_file:
+                    self.now_playing_msg = await interaction.edit_original_response(embed=embed, view=view, attachments=[state_file])
+                else:
+                    self.now_playing_msg = await interaction.edit_original_response(embed=embed, view=view)
+                self.text_channel = interaction.channel
+            elif self.now_playing_msg:
+                # Update existing message for next song
+                try:
+                    # In an edit, we usually only update embed and view to stay safe
+                    await self.now_playing_msg.edit(embed=embed, view=view)
+                except discord.NotFound:
+                    if state_file:
+                        self.now_playing_msg = await self.text_channel.send(embed=embed, view=view, file=state_file)
+                    else:
+                        self.now_playing_msg = await self.text_channel.send(embed=embed, view=view)
+            else:
+                if state_file:
+                    self.now_playing_msg = await self.text_channel.send(embed=embed, view=view, file=state_file)
+                else:
+                    self.now_playing_msg = await self.text_channel.send(embed=embed, view=view)
+        except Exception as e:
+            print(f"DEBUG: Error updating now playing message: {e}")
+            # Fallback to followup if edit fails
+            if interaction:
+                if state_file:
+                    self.now_playing_msg = await interaction.followup.send(embed=embed, view=view, file=state_file)
+                else:
+                    self.now_playing_msg = await interaction.followup.send(embed=embed, view=view)
 
     async def add_to_queue(self, interaction, search_query):
         # 1. URL Detection
@@ -245,6 +326,7 @@ class MusicPlayer:
             )
 
             if self.voice_client is None or (not self.voice_client.is_playing() and not self.voice_client.is_paused()):
+                self.text_channel = interaction.channel
                 await self.play_next(interaction)
             return
 
@@ -264,10 +346,17 @@ class MusicPlayer:
                 refined_query = search_query
                 search_prefix = "ytsearch:"
 
-        print(f"DEBUG: YouTube'dan çekiliyor: '{search_prefix}{refined_query}'")
+        # Improvement: If query is likely just a singer name, append a hint for better results
+        if not is_url and len(refined_query.split()) <= 3 and "şarkı" not in refined_query.lower() and "music" not in refined_query.lower():
+            search_query_with_hint = f"{refined_query} en popüler şarkısı"
+            print(f"DEBUG: Singer-only query detected. Using hint: '{search_query_with_hint}'")
+        else:
+            search_query_with_hint = refined_query
+
+        print(f"DEBUG: YouTube'dan çekiliyor: '{search_prefix}{search_query_with_hint}'")
         try:
             data = await asyncio.wait_for(
-                self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(f"{search_prefix}{refined_query}", download=False)),
+                self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(f"{search_prefix}{search_query_with_hint}", download=False)),
                 timeout=20.0
             )
         except asyncio.TimeoutError:
@@ -287,29 +376,41 @@ class MusicPlayer:
 
         if self.voice_client is None or (not self.voice_client.is_playing() and not self.voice_client.is_paused()):
             print("DEBUG: play_next başlatılıyor...")
+            self.text_channel = interaction.channel
             await self.play_next(interaction)
         else:
             msg = f"✅ Kuyruğa eklendi: **{song_info.get('title')}**"
             if not is_url:
                 msg += f" (Arama: *{search_query}*)"
-            await interaction.followup.send(msg)
+            
+            # Using edit_original_response clears the "thinking" status
+            try:
+                await interaction.edit_original_response(content=msg, embed=None, view=None)
+            except:
+                await interaction.followup.send(msg)
 
     async def pause(self, interaction):
         if self.voice_client and self.voice_client.is_playing():
             self.voice_client.pause()
+            self.start_idle_timer() # Start idle timer when paused
             await interaction.response.send_message("⏸️ Paused", ephemeral=True)
 
     async def resume(self, interaction):
         if self.voice_client and self.voice_client.is_paused():
             self.voice_client.resume()
+            self.stop_idle_timer() # Stop idle timer when resumed
             await interaction.response.send_message("▶️ Resumed", ephemeral=True)
 
     async def stop(self, interaction):
         self.queue = []
+        self.stop_idle_timer()
+        await self.cleanup_now_playing()
         if self.voice_client:
             await self.voice_client.disconnect()
             self.voice_client = None
-        await interaction.response.send_message("⏹️ Stopped and disconnected", ephemeral=True)
+        
+        if interaction:
+            await interaction.response.send_message("⏹️ Stopped and disconnected", ephemeral=True)
 
     async def skip(self, interaction):
         if self.voice_client and self.voice_client.is_playing():

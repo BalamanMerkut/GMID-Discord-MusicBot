@@ -60,6 +60,7 @@ class MusicControlView(View):
 
     @discord.ui.button(label="⏭️", style=discord.ButtonStyle.secondary, custom_id="skip")
     async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         await self.music_player.skip(interaction)
 
     @discord.ui.button(label="🔁", style=discord.ButtonStyle.secondary, custom_id="loop")

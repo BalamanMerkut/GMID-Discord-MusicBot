@@ -59,14 +59,7 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
     human_members = [m for m in voice_channel.members if not m.bot]
     if len(human_members) == 0:
         print(f"DEBUG: Kanalda kimse kalmadı ({voice_channel.name}), bot ayrılıyor.")
-        player.queue.clear()
-        player.current_song = None
-        player.loop = False
-        player.shuffle = False
-        if player.voice_client.is_playing() or player.voice_client.is_paused():
-            player.voice_client.stop()
-        await player.voice_client.disconnect()
-        player.voice_client = None
+        await player.stop(None)
         # Kullanıcıya bilgi ver (kanalda son mesaj atılan yer bilinmiyor, text kanalı bilinmiyor)
         # Yeterince bilgi var, sessizce ayrılıyoruz.
 
@@ -116,10 +109,31 @@ async def play(interaction: discord.Interaction, input: str):
         else:
             await interaction.followup.send(f"❌ An error occurred: {e}")
 
+@bot.tree.command(name="again", description="Replay the last played song")
+async def again(interaction: discord.Interaction):
+    """Slash command to replay the last song."""
+    player = bot.get_music_player(interaction.guild_id)
+    if not player.last_playing:
+        return await interaction.response.send_message("❌ No previous song found to replay.", ephemeral=True)
+    
+    if not interaction.user.voice:
+        return await interaction.response.send_message("❌ You must be in a voice channel!", ephemeral=True)
+
+    await interaction.response.defer()
+    await player.join(interaction.user.voice.channel)
+    # Add the last song back to the queue
+    song = player.last_playing
+    player.queue.insert(0, song)
+    if player.voice_client is None or (not player.voice_client.is_playing() and not player.voice_client.is_paused()):
+        await player.play_next(interaction)
+    else:
+        await interaction.edit_original_response(content=f"🔄 Replaying: **{song['title']}**")
+
 @bot.tree.command(name="lyrics", description="Get lyrics for the current song")
 async def lyrics(interaction: discord.Interaction):
     """Slash command to get lyrics."""
     player = bot.get_music_player(interaction.guild_id)
+    player.reset_idle_timer()
     if not player.current_song:
         return await interaction.response.send_message("❌ No song is currently playing.", ephemeral=True)
 
@@ -132,6 +146,8 @@ async def lyrics(interaction: discord.Interaction):
 @bot.tree.command(name="help", description="Show all available commands")
 async def help(interaction: discord.Interaction):
     """Slash command to show help message."""
+    player = bot.get_music_player(interaction.guild_id)
+    player.reset_idle_timer()
     embed = discord.Embed(
         title="🎵 GMID Music Bot - Help Guide",
         description="Here are the available slash commands you can use:",
