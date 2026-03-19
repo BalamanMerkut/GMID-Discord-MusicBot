@@ -16,6 +16,8 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 
 from music_handler import MusicPlayer
 from lyrics_helper import get_lyrics
+from ai_helper import get_lyrics_ai
+from translations import get_string
 
 class MusicBot(commands.Bot):
     def __init__(self):
@@ -83,7 +85,8 @@ async def play(interaction: discord.Interaction, input: str):
     print(f"DEBUG: /play command received for: '{input}'")
     if not interaction.user.voice:
         print("DEBUG: User not in voice channel.")
-        return await interaction.response.send_message("❌ You must be in a voice channel!", ephemeral=True)
+        player = bot.get_music_player(interaction.guild_id)
+        return await interaction.response.send_message(get_string(player.language, 'must_be_in_voice'), ephemeral=True)
 
     print("DEBUG: Deferring interaction response...")
     await interaction.response.defer(ephemeral=False)
@@ -114,10 +117,10 @@ async def again(interaction: discord.Interaction):
     """Slash command to replay the last song."""
     player = bot.get_music_player(interaction.guild_id)
     if not player.last_playing:
-        return await interaction.response.send_message("❌ No previous song found to replay.", ephemeral=True)
+        return await interaction.response.send_message(get_string(player.language, 'no_previous_song'), ephemeral=True)
     
     if not interaction.user.voice:
-        return await interaction.response.send_message("❌ You must be in a voice channel!", ephemeral=True)
+        return await interaction.response.send_message(get_string(player.language, 'must_be_in_voice'), ephemeral=True)
 
     await interaction.response.defer()
     await player.join(interaction.user.voice.channel)
@@ -127,7 +130,7 @@ async def again(interaction: discord.Interaction):
     if player.voice_client is None or (not player.voice_client.is_playing() and not player.voice_client.is_paused()):
         await player.play_next(interaction)
     else:
-        await interaction.edit_original_response(content=f"🔄 Replaying: **{song['title']}**")
+        await interaction.edit_original_response(content=get_string(player.language, 'replaying_last', title=song['title']))
 
 @bot.tree.command(name="lyrics", description="Get lyrics for the current song")
 async def lyrics(interaction: discord.Interaction):
@@ -135,13 +138,31 @@ async def lyrics(interaction: discord.Interaction):
     player = bot.get_music_player(interaction.guild_id)
     player.reset_idle_timer()
     if not player.current_song:
-        return await interaction.response.send_message("❌ No song is currently playing.", ephemeral=True)
+        return await interaction.response.send_message(get_string(player.language, 'no_song_playing'), ephemeral=True)
 
     await interaction.response.defer()
-    song_lyrics = await get_lyrics(player.current_song['title'])
     
-    embed = discord.Embed(title=f"Lyrics for {player.current_song['title']}", description=song_lyrics, color=discord.Color.green())
+    # Try AI lyrics first as requested by user
+    song_lyrics = await get_lyrics_ai(player.current_song['title'])
+    
+    # Fallback to Genius if AI fails (contains ❌)
+    if "❌" in song_lyrics:
+        print(f"DEBUG: AI lyrics failed ({song_lyrics}), trying Genius...")
+        genius_lyrics = await get_lyrics(player.current_song['title'])
+        if "❌" not in genius_lyrics:
+            song_lyrics = genius_lyrics
+        else:
+            # If both failed, show a cleaner error message in the user's language
+            song_lyrics = get_string(player.language, 'error_loading', error="Lyrics could not be found.")
+
+    embed = discord.Embed(
+        title=get_string(player.language, 'lyrics_title', title=player.current_song['title']), 
+        description=song_lyrics, 
+        color=discord.Color.green()
+    )
     await interaction.followup.send(embed=embed)
+    # Bring the NP control panel back to the bottom
+    await player.repost_now_playing(interaction)
 
 @bot.tree.command(name="help", description="Show all available commands")
 async def help(interaction: discord.Interaction):
@@ -149,29 +170,53 @@ async def help(interaction: discord.Interaction):
     player = bot.get_music_player(interaction.guild_id)
     player.reset_idle_timer()
     embed = discord.Embed(
-        title="🎵 GMID Music Bot - Help Guide",
-        description="Here are the available slash commands you can use:",
+        title=get_string(player.language, 'help_title'),
+        description=get_string(player.language, 'help_desc'),
         color=discord.Color.gold()
     )
     
     embed.add_field(
-        name="🚀 `/play <input>`", 
-        value="Play a song from YouTube. You can provide a **search term** or a **direct YouTube URL**.", 
+        name=get_string(player.language, 'help_play_name'), 
+        value=get_string(player.language, 'help_play_val'), 
         inline=False
     )
     embed.add_field(
-        name="📜 `/lyrics`", 
-        value="Get the lyrics for the currently playing song using Genius AI.", 
+        name=get_string(player.language, 'help_lyrics_name'), 
+        value=get_string(player.language, 'help_lyrics_val'), 
         inline=False
     )
     embed.add_field(
-        name="❓ `/help`", 
-        value="Show this helpful list of commands.", 
+        name=get_string(player.language, 'help_again_name'), 
+        value=get_string(player.language, 'help_again_val'), 
+        inline=False
+    )
+    embed.add_field(
+        name=get_string(player.language, 'help_lang_name'), 
+        value=get_string(player.language, 'help_lang_val'), 
+        inline=False
+    )
+    embed.add_field(
+        name=get_string(player.language, 'help_help_name'), 
+        value=get_string(player.language, 'help_help_val'), 
         inline=False
     )
     
-    embed.set_footer(text="Enjoy the music! 🎧")
+    embed.set_footer(text=get_string(player.language, 'help_footer'))
     await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="language", description="Change the bot language")
+@app_commands.describe(lang="Language code (tr, en, es, it, de, fr, ru, zh)")
+async def language(interaction: discord.Interaction, lang: str):
+    """Slash command to change language."""
+    player = bot.get_music_player(interaction.guild_id)
+    lang = lang.lower().strip()
+    
+    from translations import TRANSLATIONS
+    if lang in TRANSLATIONS:
+        player.language = lang
+        await interaction.response.send_message(get_string(lang, 'lang_changed'))
+    else:
+        await interaction.response.send_message(get_string(player.language, 'invalid_lang'), ephemeral=True)
 
 if __name__ == "__main__":
     if TOKEN:
