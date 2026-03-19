@@ -27,3 +27,28 @@ async def refine_query(query: str) -> str:
     except Exception as e:
         print(f"AI Refinement error: {e}")
         return query
+
+async def get_lyrics_ai(song_title: str) -> str:
+    """Uses OpenAI to find or generate the lyrics for a song."""
+    if not os.getenv("OPENAI_API_KEY"):
+        return "❌ OpenAI API key not found in .env"
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o", # Using 4o for better accuracy and recall
+            messages=[
+                {"role": "system", "content": "You are a music historian and enthusiast. Your task is to provide the full, accurate lyrics for the requested song. If you know the lyrics, return them exactly. If the song is instrumental, state that. If you are unsure, provide the most likely lyrics part or explain you cannot find them. Keep the formatting clean."},
+                {"role": "user", "content": f"Please provide the full lyrics for the song: {song_title}"}
+            ],
+            max_tokens=1500 # Lyrics can be long
+        )
+        lyrics = response.choices[0].message.content.strip()
+        
+        # Limit length for Discord (2000 chars)
+        if len(lyrics) > 1900:
+            lyrics = lyrics[:1900] + "..."
+            
+        return lyrics
+    except Exception as e:
+        print(f"AI Lyrics error: {e}")
+        return f"❌ Error fetching lyrics via AI: {e}"
