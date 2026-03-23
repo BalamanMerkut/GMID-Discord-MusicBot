@@ -79,3 +79,5 @@ If you find this project useful and would like to support its development, you c
 ---
 
 *Developed by **BalamanMerkut**. Let the music play!* 🎧
+
+[For Invitation](https://discord.com/oauth2/authorize?client_id=1483113364157890620&permissions=8&integration_type=0&scope=applications.commands+bot)
